@@ -176,8 +176,7 @@ class SequentialMemory(Memory):
         if batch_idxs is None:
             # Draw random indexes such that we have enough entries before each index to fill the
             # desired window length.
-            batch_idxs = sample_batch_indexes(
-                self.window_length, self.nb_entries - 1, size=batch_size)
+            batch_idxs = sample_batch_indexes(self.window_length, self.nb_entries - 1, size=batch_size)
         batch_idxs = np.array(batch_idxs) + 1
         assert np.min(batch_idxs) >= self.window_length + 1
         assert np.max(batch_idxs) < self.nb_entries

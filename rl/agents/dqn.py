@@ -158,7 +158,7 @@ class DQNAgent(AbstractDQNAgent):
         delta_clip__: A component of the huber loss.
     """
     def __init__(self, model, policy=None, test_policy=None, enable_double_dqn=True, enable_dueling_network=False,
-                 dueling_type='avg', *args, **kwargs):
+                 dueling_type='avg', n_step=1, *args, **kwargs):
         super(DQNAgent, self).__init__(*args, **kwargs)
 
 
@@ -182,12 +182,13 @@ class DQNAgent(AbstractDQNAgent):
             test_policy = GreedyQPolicy()
         self.policy = policy
         self.test_policy = test_policy
+        self.n_step = n_step
 
         self.reset_states()
 
         #flag for changes to algorithm that come from dealing with importance sampling weights and priorities
         self.prioritized = True if isinstance(self.memory, PrioritizedMemory) else False
-        
+
     def get_config(self):
         config = super(DQNAgent, self).get_config()
         config['enable_double_dqn'] = self.enable_double_dqn
@@ -280,7 +281,7 @@ class DQNAgent(AbstractDQNAgent):
                 # Calculations for current beta value based on a linear schedule.
                 current_beta = self.memory.calculate_beta(self.step)
                 # Sample from the memory.
-                experiences = self.memory.sample(self.batch_size, current_beta)
+                experiences = self.memory.sample(self.batch_size, current_beta, self.n_step, self.gamma)
             else:
                 #SequentialMemory
                 experiences = self.memory.sample(self.batch_size)
