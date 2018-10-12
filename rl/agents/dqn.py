@@ -340,7 +340,7 @@ class DQNAgent(AbstractDQNAgent):
 
             # Compute r_t + gamma * max_a Q(s_t+1, a) and update the target targets accordingly,
             # but only for the affected output units (as given by action_batch).
-            discounted_reward_batch = self.gamma * q_batch
+            discounted_reward_batch = (self.gamma ** self.n_step) * q_batch
             # Set discounted reward to zero for all states that were terminal.
             discounted_reward_batch *= terminal1_batch
             assert discounted_reward_batch.shape == reward_batch.shape
