@@ -15,6 +15,8 @@ from rl.memory import PrioritizedMemory, PartitionedMemory
 from rl.layers import *
 from rl.agents.dqn import AbstractDQNAgent, mean_q
 
+from keras.utils import to_categorical
+
 import pdb
 
 
@@ -104,7 +106,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
             self.curiosity_forward_model.compile(optimizer='sgd', loss='mse')
 
         if self.curiosity_inverse_model != None:
-            self.curiosity_inverse_model.compile(optimizer='sgd', loss='mse')
+            self.curiosity_inverse_model.compile(optimizer='sgd', loss='categorical_crossentropy')
 
         # Compile model.
         if self.target_model_update < 1.:
@@ -114,7 +116,6 @@ class CuriousDQNAgent(AbstractDQNAgent):
 
         def clipped_masked_error(args):
             y_true, y_pred, importance_weights, mask = args
-            pdb.set_trace()
             loss = huber_loss(y_true, y_pred, self.delta_clip)
             loss *= mask  # apply element-wise mask
             # adjust updates by importance weights. Note that importance weights are just 1.0
@@ -278,6 +279,21 @@ class CuriousDQNAgent(AbstractDQNAgent):
             # it is still useful to know the actual target to compute metrics properly.
             ins = [state0_batch] if type(self.model.input) is not list else state0_batch
             metrics = self.trainable_model.train_on_batch(ins + [targets, importance_weights, masks], [dummy_targets, targets])
+
+
+            ########### TRAIN INVERSE AND FORWARD MODELS ##############
+            ## inverse model ##
+            ##need to figure out if action batch is 1 hot or simply action number
+            if self.curiosity_forward_model is not None or self.curiosity_inverse_model is not None:
+                encoded_actions = to_categorical(action_batch, num_classes=self.nb_actions)
+
+                if self.curiosity_inverse_model is not None:
+                    self.curiosity_inverse_model.train_on_batch(x=[state0_batch, state1_batch], y=encoded_actions)
+
+                ##forward model ##
+                if self.curiosity_forward_model is not None:
+                    self.curiosity_forward_model.train_on_batch(x=[state0_batch, encoded_actions],y=state1_batch)
+            ########### END TRAIN INVERSE AND FORWARD MODELS ###########
 
             if self.prioritized:
                 assert len(pr_idxs) == self.batch_size
