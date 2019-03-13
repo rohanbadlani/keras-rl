@@ -141,7 +141,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
         #end inputs
 
         #outputs from curiosity models
-        curiousity_forward_out = self.curiosity_forward_model.output
+        curiosity_forward_out = self.curiosity_forward_model.output
         curiosity_inverse_out = self.curiosity_inverse_model.output
         #end outputs
 
@@ -193,6 +193,14 @@ class CuriousDQNAgent(AbstractDQNAgent):
 
     def update_target_model_hard(self):
         self.target_model.set_weights(self.model.get_weights())
+
+    def calculate_intrinsic_reward(self, state0, state1, encoded_actions):
+        pred_state1 = self.curiosity_forward_model.predict_on_batch(x=[state0,encoded_actions])
+        #FIXME: probably want better connection of scale factor :)
+        IR_SCALE_FACTOR=1
+        intrinsic_reward = IR_SCALE_FACTOR*K.sum(K.square(state1 - pred_state1))
+        ir_val = K.eval(intrinsic_reward)
+        return ir_val
 
     def backward(self, reward, terminal):
         # Store most recent experience in memory.
@@ -276,8 +284,14 @@ class CuriousDQNAgent(AbstractDQNAgent):
             # Set discounted reward to zero for all states that were terminal.
             discounted_reward_batch *= terminal1_batch
             assert discounted_reward_batch.shape == reward_batch.shape
-            #Putting together the multi-step target
-            Rs = reward_batch + discounted_reward_batch
+            
+            #Intrinsic reward batch
+            encoded_actions = to_categorical(action_batch, num_classes=self.nb_actions)
+            intrinsic_r = self.calculate_intrinsic_reward( state0_batch, state1_batch, encoded_actions )
+            
+            #Putting together the multi-step targets
+            Rs = reward_batch + discounted_reward_batch + intrinsic_r
+
 
             for idx, (target, mask, R, action) in enumerate(zip(targets, masks, Rs, action_batch)):
                 target[action] = R  # update action with estimated accumulated reward
@@ -297,25 +311,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
             # the actual loss is computed in a Lambda layer that needs more complex input. However,
             # it is still useful to know the actual target to compute metrics properly.
             ins = [state0_batch] if type(self.model.input) is not list else state0_batch
-            
-            encoded_actions = to_categorical(action_batch, num_classes=self.nb_actions)
             metrics = self.trainable_model.train_on_batch(ins + [targets, importance_weights, masks] + [state0_batch,encoded_actions] + [state0_batch, state1_batch], [dummy_targets, targets, state1_batch, encoded_actions])
-
-
-            ########### TRAIN INVERSE AND FORWARD MODELS ##############
-            ## inverse model ##
-            """
-            ##need to figure out if action batch is 1 hot or simply action number
-            if self.curiosity_forward_model is not None or self.curiosity_inverse_model is not None:
-
-                if self.curiosity_inverse_model is not None:
-                    self.curiosity_inverse_model.train_on_batch(x=[state0_batch, state1_batch], y=encoded_actions)
-
-                ##forward model ##
-                if self.curiosity_forward_model is not None:
-                    self.curiosity_forward_model.train_on_batch(x=[state0_batch, encoded_actions],y=state1_batch)
-            """
-            ########### END TRAIN INVERSE AND FORWARD MODELS ###########
 
             if self.prioritized:
                 assert len(pr_idxs) == self.batch_size
@@ -345,7 +341,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
     @property
     def metrics_names(self):
         # Throw away individual losses and replace output name since this is hidden from the user.
-        assert len(self.trainable_model.output_names) == 2
+        #assert len(self.trainable_model.output_names) == 2
         dummy_output_name = self.trainable_model.output_names[1]
         model_metrics = [name for idx, name in enumerate(self.trainable_model.metrics_names) if idx not in (1, 2)]
         model_metrics = [name.replace(dummy_output_name + '_', '') for name in model_metrics]
