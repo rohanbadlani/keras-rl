@@ -4,6 +4,7 @@ import keras.backend as K
 from keras.models import Model
 from keras.layers import Lambda, Input, Layer, Dense
 from keras.utils.generic_utils import Progbar
+from keras.losses import mean_squared_error, categorical_crossentropy
 
 import sys
 sys.path.append('../../')
@@ -102,6 +103,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
         self.target_model.compile(optimizer='sgd', loss='mse')
         self.model.compile(optimizer='sgd', loss='mse')
 
+        ## We never train these models, hence we can set the optimizer and loss arbitrarily
         if self.curiosity_forward_model != None:
             self.curiosity_forward_model.compile(optimizer='sgd', loss='mse')
 
@@ -132,14 +134,31 @@ class CuriousDQNAgent(AbstractDQNAgent):
         importance_weights = Input(name='importance_weights',shape=(self.nb_actions,))
         loss_out = Lambda(clipped_masked_error, output_shape=(1,), name='loss')([y_true, y_pred, importance_weights, mask])
         ins = [self.model.input] if type(self.model.input) is not list else self.model.input
-        trainable_model = Model(inputs=ins + [y_true, importance_weights, mask], outputs=[loss_out, y_pred])
-        assert len(trainable_model.output_names) == 2
+        
+        #inputs to curiosity models
+        ins_curiosity_forward = [self.curiosity_forward_model.input] if type(self.curiosity_forward_model.input) is not list else self.curiosity_forward_model.input
+        ins_curiosity_inverse = [self.curiosity_inverse_model.input] if type(self.curiosity_inverse_model.input) is not list else self.curiosity_inverse_model.input
+        #end inputs
+
+        #outputs from curiosity models
+        curiousity_forward_out = self.curiosity_forward_model.output
+        curiosity_inverse_out = self.curiosity_inverse_model.output
+        #end outputs
+
+        trainable_model = Model(inputs=ins + [y_true, importance_weights, mask] + ins_curiosity_forward + ins_curiosity_inverse, outputs=[loss_out, y_pred, curiosity_forward_out, curiosity_inverse_out])
+        
+        #Commenting out since now we have 2 additional outputs
+        #assert len(trainable_model.output_names) == 2
+
         combined_metrics = {trainable_model.output_names[1]: metrics}
         losses = [
             lambda y_true, y_pred: y_pred,  # loss is computed in Lambda layer
             lambda y_true, y_pred: K.zeros_like(y_pred),  # we only include this for the metrics
+            mean_squared_error,
+            categorical_crossentropy
         ]
-        trainable_model.compile(optimizer=optimizer, loss=losses, metrics=combined_metrics)
+        #for now, loss is a straight sum of all losses; note that the second loss is always 0; we don't use it
+        trainable_model.compile(optimizer=optimizer, loss=losses, loss_weights=[1.0,1.0,1.0,1.0], metrics=combined_metrics)
         self.trainable_model = trainable_model
 
         self.compiled = True
@@ -278,14 +297,16 @@ class CuriousDQNAgent(AbstractDQNAgent):
             # the actual loss is computed in a Lambda layer that needs more complex input. However,
             # it is still useful to know the actual target to compute metrics properly.
             ins = [state0_batch] if type(self.model.input) is not list else state0_batch
-            metrics = self.trainable_model.train_on_batch(ins + [targets, importance_weights, masks], [dummy_targets, targets])
+            
+            encoded_actions = to_categorical(action_batch, num_classes=self.nb_actions)
+            metrics = self.trainable_model.train_on_batch(ins + [targets, importance_weights, masks] + [state0_batch,encoded_actions] + [state0_batch, state1_batch], [dummy_targets, targets, state1_batch, encoded_actions])
 
 
             ########### TRAIN INVERSE AND FORWARD MODELS ##############
             ## inverse model ##
+            """
             ##need to figure out if action batch is 1 hot or simply action number
             if self.curiosity_forward_model is not None or self.curiosity_inverse_model is not None:
-                encoded_actions = to_categorical(action_batch, num_classes=self.nb_actions)
 
                 if self.curiosity_inverse_model is not None:
                     self.curiosity_inverse_model.train_on_batch(x=[state0_batch, state1_batch], y=encoded_actions)
@@ -293,6 +314,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
                 ##forward model ##
                 if self.curiosity_forward_model is not None:
                     self.curiosity_forward_model.train_on_batch(x=[state0_batch, encoded_actions],y=state1_batch)
+            """
             ########### END TRAIN INVERSE AND FORWARD MODELS ###########
 
             if self.prioritized:
