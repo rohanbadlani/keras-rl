@@ -158,7 +158,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
             categorical_crossentropy
         ]
         #for now, loss is a straight sum of all losses; note that the second loss is always 0; we don't use it
-        trainable_model.compile(optimizer=optimizer, loss=losses, loss_weights=[1.0,1.0,1.0,1.0], metrics=combined_metrics)
+        trainable_model.compile(optimizer=optimizer, loss=losses, loss_weights=[0.1,1.0,0.8,0.2], metrics=combined_metrics)
         self.trainable_model = trainable_model
 
         self.compiled = True
@@ -509,7 +509,7 @@ class CuriousDQfDAgent(AbstractDQNAgent):
             categorical_crossentropy #for inverse model
         ]
 
-        trainable_model.compile(optimizer=optimizer, loss=losses, loss_weights=[1.0,1.0,1.0,1.0], metrics=combined_metrics)
+        trainable_model.compile(optimizer=optimizer, loss=losses, loss_weights=[0.1,1.0,0.8,0.2], metrics=combined_metrics)
         self.trainable_model = trainable_model
 
         self.compiled = True
