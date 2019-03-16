@@ -130,6 +130,7 @@ class TrainEpisodeLogger(Callback):
         self.metrics = {}
         self.step = 0
         self.filepath = filepath
+        self.header_printed = False
 
     def on_train_begin(self, logs):
         """ Print training values at beginning of training """
@@ -203,6 +204,15 @@ class TrainEpisodeLogger(Callback):
             'metrics': metrics_text,
         }
         print(template.format(**variables))
+
+        if not self.header_printed:
+            if self.filepath != None:
+                with open(self.filepath, 'a') as f:
+                    f.write("Metrics Tracked: ")
+                    f.write('\n')
+                    f.write(str(sorted(variables.keys())))
+                    f.write('\n')
+            self.header_printed = True
 
         try:
             if self.filepath != None:

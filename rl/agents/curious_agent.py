@@ -79,6 +79,8 @@ class CuriousDQNAgent(AbstractDQNAgent):
 
         self.curiosity_forward_model = curiosity_forward_model
         self.curiosity_inverse_model = curiosity_inverse_model
+
+
         
     def get_config(self):
         config = super(CuriousDQNAgent, self).get_config()
@@ -132,12 +134,16 @@ class CuriousDQNAgent(AbstractDQNAgent):
         y_true = Input(name='y_true', shape=(self.nb_actions,))
         mask = Input(name='mask', shape=(self.nb_actions,))
         importance_weights = Input(name='importance_weights',shape=(self.nb_actions,))
-        loss_out = Lambda(clipped_masked_error, output_shape=(1,), name='loss')([y_true, y_pred, importance_weights, mask])
+        loss_out = Lambda(clipped_masked_error, output_shape=(1,), name='extrinsic_loss')([y_true, y_pred, importance_weights, mask])
         ins = [self.model.input] if type(self.model.input) is not list else self.model.input
         
-        #inputs to curiosity models
-        ins_curiosity_forward = [self.curiosity_forward_model.input] if type(self.curiosity_forward_model.input) is not list else self.curiosity_forward_model.input
+ 
+        #state1 and state2
         ins_curiosity_inverse = [self.curiosity_inverse_model.input] if type(self.curiosity_inverse_model.input) is not list else self.curiosity_inverse_model.input
+
+        #action
+        ins_curiosity_forward = [self.curiosity_forward_model.input[1]] if type(self.curiosity_forward_model.input) is not list else self.curiosity_forward_model.input[1:]
+        
         #end inputs
 
         #outputs from curiosity models
@@ -147,6 +153,10 @@ class CuriousDQNAgent(AbstractDQNAgent):
 
         trainable_model = Model(inputs=ins + [y_true, importance_weights, mask] + ins_curiosity_forward + ins_curiosity_inverse, outputs=[loss_out, y_pred, curiosity_forward_out, curiosity_inverse_out])
         
+        #The purpose of this mini-model is just to be able to calculate phi(next_state) -- in lunar lander, this is simply next_state itself. in breakout, 
+        #this would be the result of passing next_state through the convolution layers
+        self.phi_ns = Model(inputs=[self.curiosity_inverse_model.input[1]], outputs=[self.curiosity_inverse_model.get_layer("flattened_phi_next_state").input])
+
         #Commenting out since now we have 2 additional outputs
         #assert len(trainable_model.output_names) == 2
 
@@ -198,9 +208,10 @@ class CuriousDQNAgent(AbstractDQNAgent):
         pred_state1 = self.curiosity_forward_model.predict_on_batch(x=[state0,encoded_actions])
         #FIXME: probably want better connection of scale factor :)
         IR_SCALE_FACTOR=1
-        intrinsic_reward = IR_SCALE_FACTOR*K.sum(K.square(state1 - pred_state1))
+        true_state1 = self.phi_ns.predict_on_batch(x=[state1])
+        intrinsic_reward = IR_SCALE_FACTOR*K.sum(K.square(true_state1 - pred_state1))
         ir_val = K.eval(intrinsic_reward)
-        return ir_val
+        return ir_val, true_state1
 
     def backward(self, reward, terminal):
         # Store most recent experience in memory.
@@ -287,7 +298,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
             
             #Intrinsic reward batch
             encoded_actions = to_categorical(action_batch, num_classes=self.nb_actions)
-            intrinsic_r = self.calculate_intrinsic_reward( state0_batch, state1_batch, encoded_actions )
+            intrinsic_r, true_state1 = self.calculate_intrinsic_reward( state0_batch, state1_batch, encoded_actions )
             
             #Putting together the multi-step targets
             Rs = reward_batch + discounted_reward_batch + intrinsic_r
@@ -310,7 +321,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
             # the actual loss is computed in a Lambda layer that needs more complex input. However,
             # it is still useful to know the actual target to compute metrics properly.
             ins = [state0_batch] if type(self.model.input) is not list else state0_batch
-            metrics = self.trainable_model.train_on_batch(ins + [targets, importance_weights, masks] + [state0_batch,encoded_actions] + [state0_batch, state1_batch], [dummy_targets, targets, state1_batch, encoded_actions])
+            metrics = self.trainable_model.train_on_batch(ins + [targets, importance_weights, masks] + [encoded_actions] + [state0_batch, state1_batch], [dummy_targets, targets, true_state1, encoded_actions])
 
             if self.prioritized:
                 assert len(pr_idxs) == self.batch_size
@@ -323,7 +334,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
                 #update priorities
                 self.memory.update_priorities(pr_idxs, new_priorities)
 
-            metrics = [metric for idx, metric in enumerate(metrics) if idx not in (1, 2)]  # throw away individual losses
+            metrics = [metric for idx, metric in enumerate(metrics) if idx not in (2,)]  # throw away individual losses
             metrics += self.policy.metrics
             if self.processor is not None:
                 metrics += self.processor.metrics
@@ -342,7 +353,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
         # Throw away individual losses and replace output name since this is hidden from the user.
         #assert len(self.trainable_model.output_names) == 2
         dummy_output_name = self.trainable_model.output_names[1]
-        model_metrics = [name for idx, name in enumerate(self.trainable_model.metrics_names) if idx not in (1, 2)]
+        model_metrics = [name for idx, name in enumerate(self.trainable_model.metrics_names) if idx not in (2,)]
         model_metrics = [name.replace(dummy_output_name + '_', '') for name in model_metrics]
 
         names = model_metrics + self.policy.metrics_names[:]
@@ -484,12 +495,15 @@ class CuriousDQfDAgent(AbstractDQNAgent):
         agent_actions = Input(name='agent_actions',shape=(self.nb_actions,))
         large_margin = Input(name='large-margin',shape=(self.nb_actions,))
         lam_2 = Input(name='lam_2',shape=(self.nb_actions,))
-        loss_out = Lambda(dqfd_error, output_shape=(1,), name='loss')([y_true, y_true_n, y_pred, importance_weights, agent_actions, large_margin, lam_2, mask])
+        loss_out = Lambda(dqfd_error, output_shape=(1,), name='extrinsic_loss')([y_true, y_true_n, y_pred, importance_weights, agent_actions, large_margin, lam_2, mask])
         ins = [self.model.input] if type(self.model.input) is not list else self.model.input
         
         #inputs to curiosity models
-        ins_curiosity_forward = [self.curiosity_forward_model.input] if type(self.curiosity_forward_model.input) is not list else self.curiosity_forward_model.input
         ins_curiosity_inverse = [self.curiosity_inverse_model.input] if type(self.curiosity_inverse_model.input) is not list else self.curiosity_inverse_model.input
+        #action
+        ins_curiosity_forward = [self.curiosity_forward_model.input[1]] if type(self.curiosity_forward_model.input) is not list else self.curiosity_forward_model.input[1:]
+        
+        #end inputs
         #end inputs
 
         #outputs from curiosity models
@@ -564,9 +578,10 @@ class CuriousDQfDAgent(AbstractDQNAgent):
         pred_state1 = self.curiosity_forward_model.predict_on_batch(x=[state0,encoded_actions])
         #FIXME: probably want better connection of scale factor :)
         IR_SCALE_FACTOR=1
-        intrinsic_reward = IR_SCALE_FACTOR*K.sum(K.square(state1 - pred_state1))
+        true_state1 = self.phi_ns.predict_on_batch(x=[state1])
+        intrinsic_reward = IR_SCALE_FACTOR*K.sum(K.square(true_state1 - pred_state1))
         ir_val = K.eval(intrinsic_reward)
-        return ir_val
+        return ir_val, true_state1
 
     def backward(self, reward, terminal):
         # Store most recent experience in memory.
@@ -668,7 +683,7 @@ class CuriousDQfDAgent(AbstractDQNAgent):
 
             #Intrinsic reward batch
             encoded_actions = to_categorical(action_batch, num_classes=self.nb_actions)
-            intrinsic_r = self.calculate_intrinsic_reward( state0_batch, state1_batch, encoded_actions )
+            intrinsic_r, true_state1 = self.calculate_intrinsic_reward( state0_batch, state1_batch, encoded_actions )
             
             #Putting together the multi-step targets
             Rs = reward_batch + discounted_reward_batch + intrinsic_r
@@ -710,7 +725,8 @@ class CuriousDQfDAgent(AbstractDQNAgent):
                                 large_margin[i,j] = self.large_margin
 
             ins = [state0_batch] if type(self.model.input) is not list else state0_batch
-            metrics = self.trainable_model.train_on_batch(ins + [targets, targets_n, importance_weights, agent_actions, large_margin, lam_2, masks] + [state0_batch,encoded_actions] + [state0_batch, state1_batch], [dummy_targets, targets, state1_batch, encoded_actions])
+
+            metrics = self.trainable_model.train_on_batch(ins + [targets, targets_n, importance_weights, agent_actions, large_margin, lam_2, masks] + [encoded_actions] + [state0_batch, state1_batch], [dummy_targets, targets, true_state1, encoded_actions])
 
             assert len(idxs) == self.batch_size
             #Calculate new priorities.
@@ -721,7 +737,7 @@ class CuriousDQfDAgent(AbstractDQNAgent):
             assert len(new_priorities) == self.batch_size
             self.memory.update_priorities(idxs, new_priorities)
 
-            metrics = [metric for idx, metric in enumerate(metrics) if idx not in (1, 2)]  # throw away individual losses
+            metrics = [metric for idx, metric in enumerate(metrics) if idx not in (2,)]  # throw away individual losses
             metrics += self.policy.metrics
             if self.processor is not None:
                 metrics += self.processor.metrics
@@ -757,7 +773,7 @@ class CuriousDQfDAgent(AbstractDQNAgent):
         # Throw away individual losses and replace output name since this is hidden from the user.
         #assert len(self.trainable_model.output_names) == 2
         dummy_output_name = self.trainable_model.output_names[1]
-        model_metrics = [name for idx, name in enumerate(self.trainable_model.metrics_names) if idx not in (1, 2)]
+        model_metrics = [name for idx, name in enumerate(self.trainable_model.metrics_names) if idx not in (2,)]
         model_metrics = [name.replace(dummy_output_name + '_', '') for name in model_metrics]
 
         names = model_metrics + self.policy.metrics_names[:]
