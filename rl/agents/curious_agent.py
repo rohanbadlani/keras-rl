@@ -139,23 +139,24 @@ class CuriousDQNAgent(AbstractDQNAgent):
         
  
         #state1 and state2
-        ins_curiosity_inverse = [self.curiosity_inverse_model.input] if type(self.curiosity_inverse_model.input) is not list else self.curiosity_inverse_model.input
+        #ins_curiosity_inverse = [self.curiosity_inverse_model.input] if type(self.curiosity_inverse_model.input) is not list else self.curiosity_inverse_model.input
 
         #action
-        ins_curiosity_forward = [self.curiosity_forward_model.input[1]] if type(self.curiosity_forward_model.input) is not list else self.curiosity_forward_model.input[1:]
+        #ins_curiosity_forward = [self.curiosity_forward_model.input[1]] if type(self.curiosity_forward_model.input) is not list else self.curiosity_forward_model.input[1:]
+        ins_curiosity_forward = [self.curiosity_forward_model.input] if type(self.curiosity_forward_model.input) is not list else self.curiosity_forward_model.input
         
         #end inputs
 
         #outputs from curiosity models
         curiosity_forward_out = self.curiosity_forward_model.output
-        curiosity_inverse_out = self.curiosity_inverse_model.output
+        #curiosity_inverse_out = self.curiosity_inverse_model.output
         #end outputs
 
-        trainable_model = Model(inputs=ins + [y_true, importance_weights, mask] + ins_curiosity_forward + ins_curiosity_inverse, outputs=[loss_out, y_pred, curiosity_forward_out, curiosity_inverse_out])
+        trainable_model = Model(inputs=ins + [y_true, importance_weights, mask] + ins_curiosity_forward, outputs=[loss_out, y_pred, curiosity_forward_out])
         
         #The purpose of this mini-model is just to be able to calculate phi(next_state) -- in lunar lander, this is simply next_state itself. in breakout, 
         #this would be the result of passing next_state through the convolution layers
-        self.phi_ns = Model(inputs=[self.curiosity_inverse_model.input[1]], outputs=[self.curiosity_inverse_model.get_layer("flattened_phi_next_state").input])
+        #self.phi_ns = Model(inputs=[self.curiosity_inverse_model.input[1]], outputs=[self.curiosity_inverse_model.get_layer("flattened_phi_next_state").input])
 
         #Commenting out since now we have 2 additional outputs
         #assert len(trainable_model.output_names) == 2
@@ -164,11 +165,10 @@ class CuriousDQNAgent(AbstractDQNAgent):
         losses = [
             lambda y_true, y_pred: y_pred,  # loss is computed in Lambda layer
             lambda y_true, y_pred: K.zeros_like(y_pred),  # we only include this for the metrics
-            mean_squared_error,
-            categorical_crossentropy
+            mean_squared_error
         ]
         #for now, loss is a straight sum of all losses; note that the second loss is always 0; we don't use it
-        trainable_model.compile(optimizer=optimizer, loss=losses, loss_weights=[0.1,1.0,0.8,0.2], metrics=combined_metrics)
+        trainable_model.compile(optimizer=optimizer, loss=losses, loss_weights=[0.1,1.0,1.0], metrics=combined_metrics)
         self.trainable_model = trainable_model
 
         self.compiled = True
@@ -208,7 +208,11 @@ class CuriousDQNAgent(AbstractDQNAgent):
         pred_state1 = self.curiosity_forward_model.predict_on_batch(x=[state0,encoded_actions])
         #FIXME: probably want better connection of scale factor :)
         IR_SCALE_FACTOR=1
-        true_state1 = self.phi_ns.predict_on_batch(x=[state1])
+        #true_state1 = self.phi_ns.predict_on_batch(x=[state1])
+        if self.curiosity_inverse_model is None:
+            true_state1 = state1
+        else:
+            true_state1 = self.phi_ns.predict_on_batch(x=[state1])
         intrinsic_reward = IR_SCALE_FACTOR*K.sum(K.square(true_state1 - pred_state1))
         ir_val = K.eval(intrinsic_reward)
         return ir_val, true_state1
@@ -321,7 +325,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
             # the actual loss is computed in a Lambda layer that needs more complex input. However,
             # it is still useful to know the actual target to compute metrics properly.
             ins = [state0_batch] if type(self.model.input) is not list else state0_batch
-            metrics = self.trainable_model.train_on_batch(ins + [targets, importance_weights, masks] + [encoded_actions] + [state0_batch, state1_batch], [dummy_targets, targets, true_state1, encoded_actions])
+            metrics = self.trainable_model.train_on_batch(ins + [targets, importance_weights, masks] + [state0_batch, encoded_actions], [dummy_targets, targets, true_state1])
 
             if self.prioritized:
                 assert len(pr_idxs) == self.batch_size
@@ -499,23 +503,23 @@ class CuriousDQfDAgent(AbstractDQNAgent):
         ins = [self.model.input] if type(self.model.input) is not list else self.model.input
         
         #inputs to curiosity models
-        ins_curiosity_inverse = [self.curiosity_inverse_model.input] if type(self.curiosity_inverse_model.input) is not list else self.curiosity_inverse_model.input
+        #ins_curiosity_inverse = [self.curiosity_inverse_model.input] if type(self.curiosity_inverse_model.input) is not list else self.curiosity_inverse_model.input
         #action
-        ins_curiosity_forward = [self.curiosity_forward_model.input[1]] if type(self.curiosity_forward_model.input) is not list else self.curiosity_forward_model.input[1:]
+        ins_curiosity_forward = [self.curiosity_forward_model.input] if type(self.curiosity_forward_model.input) is not list else self.curiosity_forward_model.input
         
         #end inputs
         #end inputs
 
         #The purpose of this mini-model is just to be able to calculate phi(next_state) -- in lunar lander, this is simply next_state itself. in breakout, 
         #this would be the result of passing next_state through the convolution layers
-        self.phi_ns = Model(inputs=[self.curiosity_inverse_model.input[1]], outputs=[self.curiosity_inverse_model.get_layer("flattened_phi_next_state").input])
+        #self.phi_ns = Model(inputs=[self.curiosity_inverse_model.input[1]], outputs=[self.curiosity_inverse_model.get_layer("flattened_phi_next_state").input])
 
         #outputs from curiosity models
         curiosity_forward_out = self.curiosity_forward_model.output
-        curiosity_inverse_out = self.curiosity_inverse_model.output
+        #curiosity_inverse_out = self.curiosity_inverse_model.output
         #end outputs
         
-        trainable_model = Model(inputs=ins + [y_true, y_true_n, importance_weights, agent_actions, large_margin, lam_2, mask] + ins_curiosity_forward + ins_curiosity_inverse, outputs=[loss_out, y_pred, curiosity_forward_out, curiosity_inverse_out])
+        trainable_model = Model(inputs=ins + [y_true, y_true_n, importance_weights, agent_actions, large_margin, lam_2, mask] + ins_curiosity_forward, outputs=[loss_out, y_pred, curiosity_forward_out])
         #since now we have 2 additional outputs
         assert len(trainable_model.output_names) == 4
 
@@ -523,11 +527,10 @@ class CuriousDQfDAgent(AbstractDQNAgent):
         losses = [
             lambda y_true, y_pred: y_pred,  # loss is computed in Lambda layer
             lambda y_true, y_pred: K.zeros_like(y_pred),  # we only include this for the metrics
-            mean_squared_error, # for forward model
-            categorical_crossentropy #for inverse model
+            mean_squared_error # for forward model
         ]
 
-        trainable_model.compile(optimizer=optimizer, loss=losses, loss_weights=[0.1,1.0,0.8,0.2], metrics=combined_metrics)
+        trainable_model.compile(optimizer=optimizer, loss=losses, loss_weights=[0.1,1.0,1.0], metrics=combined_metrics)
         self.trainable_model = trainable_model
 
         self.compiled = True
@@ -582,7 +585,10 @@ class CuriousDQfDAgent(AbstractDQNAgent):
         pred_state1 = self.curiosity_forward_model.predict_on_batch(x=[state0,encoded_actions])
         #FIXME: probably want better connection of scale factor :)
         IR_SCALE_FACTOR=1
-        true_state1 = self.phi_ns.predict_on_batch(x=[state1])
+        if self.curiosity_inverse_model is None:
+            true_state1 = state1
+        else:
+            true_state1 = self.phi_ns.predict_on_batch(x=[state1])
         intrinsic_reward = IR_SCALE_FACTOR*K.sum(K.square(true_state1 - pred_state1))
         ir_val = K.eval(intrinsic_reward)
         return ir_val, true_state1
@@ -730,7 +736,7 @@ class CuriousDQfDAgent(AbstractDQNAgent):
 
             ins = [state0_batch] if type(self.model.input) is not list else state0_batch
 
-            metrics = self.trainable_model.train_on_batch(ins + [targets, targets_n, importance_weights, agent_actions, large_margin, lam_2, masks] + [encoded_actions] + [state0_batch, state1_batch], [dummy_targets, targets, true_state1, encoded_actions])
+            metrics = self.trainable_model.train_on_batch(ins + [targets, targets_n, importance_weights, agent_actions, large_margin, lam_2, masks] + [state0_batch, encoded_actions] , [dummy_targets, targets, true_state1])
 
             assert len(idxs) == self.batch_size
             #Calculate new priorities.
