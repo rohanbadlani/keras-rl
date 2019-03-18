@@ -506,6 +506,10 @@ class CuriousDQfDAgent(AbstractDQNAgent):
         #end inputs
         #end inputs
 
+        #The purpose of this mini-model is just to be able to calculate phi(next_state) -- in lunar lander, this is simply next_state itself. in breakout, 
+        #this would be the result of passing next_state through the convolution layers
+        self.phi_ns = Model(inputs=[self.curiosity_inverse_model.input[1]], outputs=[self.curiosity_inverse_model.get_layer("flattened_phi_next_state").input])
+
         #outputs from curiosity models
         curiosity_forward_out = self.curiosity_forward_model.output
         curiosity_inverse_out = self.curiosity_inverse_model.output
