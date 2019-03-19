@@ -50,7 +50,6 @@ class CuriousDQNAgent(AbstractDQNAgent):
                  dueling_type='avg', *args, **kwargs):
         super(CuriousDQNAgent, self).__init__(*args, **kwargs)
 
-
         # Validate (important) input.
         if hasattr(model.output, '__len__') and len(model.output) > 1:
             raise ValueError('Model "{}" has more than one output. DQN expects a model that has a single output.'.format(model))
@@ -79,8 +78,6 @@ class CuriousDQNAgent(AbstractDQNAgent):
 
         self.curiosity_forward_model = curiosity_forward_model
         self.curiosity_inverse_model = curiosity_inverse_model
-
-
         
     def get_config(self):
         config = super(CuriousDQNAgent, self).get_config()
@@ -209,8 +206,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
         #FIXME: probably want better connection of scale factor :)
         IR_SCALE_FACTOR=1
         true_state1 = self.phi_ns.predict_on_batch(x=[state1])
-        intrinsic_reward = IR_SCALE_FACTOR*K.sum(K.square(true_state1 - pred_state1))
-        ir_val = K.eval(intrinsic_reward)
+        ir_val = IR_SCALE_FACTOR*np.sum(abs(np.sum((true_state1-pred_state1)**2, axis=-1)))
         return ir_val, true_state1
 
     def backward(self, reward, terminal):
@@ -583,8 +579,7 @@ class CuriousDQfDAgent(AbstractDQNAgent):
         #FIXME: probably want better connection of scale factor :)
         IR_SCALE_FACTOR=1
         true_state1 = self.phi_ns.predict_on_batch(x=[state1])
-        intrinsic_reward = IR_SCALE_FACTOR*K.sum(K.square(true_state1 - pred_state1))
-        ir_val = K.eval(intrinsic_reward)
+        ir_val = IR_SCALE_FACTOR*np.sum(abs(np.sum((true_state1-pred_state1)**2, axis=-1)))
         return ir_val, true_state1
 
     def backward(self, reward, terminal):
