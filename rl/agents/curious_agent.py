@@ -204,9 +204,9 @@ class CuriousDQNAgent(AbstractDQNAgent):
     def calculate_intrinsic_reward(self, state0, state1, encoded_actions):
         pred_state1 = self.curiosity_forward_model.predict_on_batch(x=[state0,encoded_actions])
         #FIXME: probably want better connection of scale factor :)
-        IR_SCALE_FACTOR=1
+        IR_SCALE_FACTOR=0.5
         true_state1 = self.phi_ns.predict_on_batch(x=[state1])
-        ir_val = IR_SCALE_FACTOR*np.sum(abs(np.sum((true_state1-pred_state1)**2, axis=-1)))
+        ir_val = IR_SCALE_FACTOR*np.sum((np.sum((true_state1-pred_state1)**2, axis=-1)))/self.batch_size
         return ir_val, true_state1
 
     def backward(self, reward, terminal):
