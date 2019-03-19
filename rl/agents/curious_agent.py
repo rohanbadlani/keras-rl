@@ -204,9 +204,17 @@ class CuriousDQNAgent(AbstractDQNAgent):
     def calculate_intrinsic_reward(self, state0, state1, encoded_actions):
         pred_state1 = self.curiosity_forward_model.predict_on_batch(x=[state0,encoded_actions])
         #FIXME: probably want better connection of scale factor :)
-        IR_SCALE_FACTOR=0.5
+        IR_SCALE_FACTOR=1.0
         true_state1 = self.phi_ns.predict_on_batch(x=[state1])
-        ir_val = IR_SCALE_FACTOR*np.sum((np.sum((true_state1-pred_state1)**2, axis=-1)))/self.batch_size
+        #Divide by the size of the state.
+        state_shape = true_state1.shape
+        state_entries = 1
+        
+        #Note: 1st dim is batch_size --> so excluding that here
+        for i in range(1, len(state_shape)):
+            state_entries *= state_shape[i]
+
+        ir_val = IR_SCALE_FACTOR*np.sum((true_state1-pred_state1)**2, axis=tuple(range(1, pred_state1.ndim)))/(state_entries)
         return ir_val, true_state1
 
     def backward(self, reward, terminal):
@@ -577,9 +585,17 @@ class CuriousDQfDAgent(AbstractDQNAgent):
     def calculate_intrinsic_reward(self, state0, state1, encoded_actions):
         pred_state1 = self.curiosity_forward_model.predict_on_batch(x=[state0,encoded_actions])
         #FIXME: probably want better connection of scale factor :)
-        IR_SCALE_FACTOR=1
+        IR_SCALE_FACTOR=1.0
         true_state1 = self.phi_ns.predict_on_batch(x=[state1])
-        ir_val = IR_SCALE_FACTOR*np.sum(abs(np.sum((true_state1-pred_state1)**2, axis=-1)))
+        #Divide by the size of the state.
+        state_shape = true_state1.shape
+        state_entries = 1
+        
+        #Note: 1st dim is batch_size --> so excluding that here
+        for i in range(1, len(state_shape)):
+            state_entries *= state_shape[i]
+
+        ir_val = IR_SCALE_FACTOR*np.sum((true_state1-pred_state1)**2, axis=tuple(range(1, pred_state1.ndim)))/(state_entries)
         return ir_val, true_state1
 
     def backward(self, reward, terminal):
