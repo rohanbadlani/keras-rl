@@ -165,7 +165,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
             categorical_crossentropy
         ]
         #for now, loss is a straight sum of all losses; note that the second loss is always 0; we don't use it
-        trainable_model.compile(optimizer=optimizer, loss=losses, loss_weights=[0.1,1.0,0.8,0.2], metrics=combined_metrics)
+        trainable_model.compile(optimizer=optimizer, loss=losses, loss_weights=[1.0,1.0,1.0,1.0], metrics=combined_metrics)
         self.trainable_model = trainable_model
 
         self.compiled = True
@@ -207,15 +207,21 @@ class CuriousDQNAgent(AbstractDQNAgent):
         IR_SCALE_FACTOR=1.0
         true_state1 = self.phi_ns.predict_on_batch(x=[state1])
         #Divide by the size of the state.
-        state_shape = true_state1.shape
-        state_entries = 1
-        
-        #Note: 1st dim is batch_size --> so excluding that here
-        for i in range(1, len(state_shape)):
-            state_entries *= state_shape[i]
+        #hacky check for is this LL?
+        if true_state1.shape[-1] == 8 and len(true_state1.shape)==3:
+            max_vals = np.array( (1.0283235, 3.2698686, 2.9193833,1.908467,  3.5337086,  7.4665504, 1., 1. ) )
+            min_vals = np.array( (-1.0179366,  -0.44454136 ,-2.178428 ,  -2.026055 ,  -4.5340695 ,  -6.8725386 , 0.   ,       0. ) )
 
+            ranges = max_vals - min_vals
+
+            true_state1 = (true_state1 - min_vals) / ranges
+            pred_state1 = (pred_state1 - min_vals) / ranges
+       
+        #Note: 1st dim is batch_size --> so excluding that here
+        state_entries = np.prod(true_state1.shape[1:])
         ir_val = IR_SCALE_FACTOR*np.sum((true_state1-pred_state1)**2, axis=tuple(range(1, pred_state1.ndim)))/(state_entries)
         return ir_val, true_state1
+
 
     def backward(self, reward, terminal):
         # Store most recent experience in memory.
@@ -303,7 +309,7 @@ class CuriousDQNAgent(AbstractDQNAgent):
             #Intrinsic reward batch
             encoded_actions = to_categorical(action_batch, num_classes=self.nb_actions)
             intrinsic_r, true_state1 = self.calculate_intrinsic_reward( state0_batch, state1_batch, encoded_actions )
-            
+           
             #Putting together the multi-step targets
             Rs = reward_batch + discounted_reward_batch + intrinsic_r
 
@@ -583,18 +589,21 @@ class CuriousDQfDAgent(AbstractDQNAgent):
                 nb_max_episode_steps)
 
     def calculate_intrinsic_reward(self, state0, state1, encoded_actions):
-        pred_state1 = self.curiosity_forward_model.predict_on_batch(x=[state0,encoded_actions])
-        #FIXME: probably want better connection of scale factor :)
         IR_SCALE_FACTOR=1.0
         true_state1 = self.phi_ns.predict_on_batch(x=[state1])
         #Divide by the size of the state.
-        state_shape = true_state1.shape
-        state_entries = 1
-        
-        #Note: 1st dim is batch_size --> so excluding that here
-        for i in range(1, len(state_shape)):
-            state_entries *= state_shape[i]
+        #hacky check for is this LL?
+        if true_state1.shape[-1] == 8 and len(true_state1.shape)==3:
+            max_vals = np.array( (1.0283235, 3.2698686, 2.9193833,1.908467,  3.5337086,  7.4665504, 1., 1. ) )
+            min_vals = np.array( (-1.0179366,  -0.44454136 ,-2.178428 ,  -2.026055 ,  -4.5340695 ,  -6.8725386 , 0.   ,       0. ) )
 
+            ranges = max_vals - min_vals
+
+            true_state1 = (true_state1 - min_vals) / ranges
+            pred_state1 = (pred_state1 - min_vals) / ranges
+       
+        #Note: 1st dim is batch_size --> so excluding that here
+        state_entries = np.prod(true_state1.shape[1:])
         ir_val = IR_SCALE_FACTOR*np.sum((true_state1-pred_state1)**2, axis=tuple(range(1, pred_state1.ndim)))/(state_entries)
         return ir_val, true_state1
 
