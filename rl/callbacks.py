@@ -103,6 +103,10 @@ class CallbackList(KerasCallbackList):
 
 class TestLogger(Callback):
     """ Logger Class for Test """
+    def __init__(self):
+        self.episode_reward = 0
+        self.num_episodes = 0
+    
     def on_train_begin(self, logs):
         """ Print logs at beginning of training"""
         print('Testing for {} episodes ...'.format(self.params['nb_episodes']))
@@ -115,7 +119,15 @@ class TestLogger(Callback):
             logs['episode_reward'],
             logs['nb_steps'],
         ]
+        self.num_episodes +=1
+        self.episode_reward += logs['episode_reward']
         print(template.format(*variables))
+
+    def on_train_end(self, logs):
+        print("Done Training")
+        print("Total reward: " + str(self.episode_reward) )
+        print("Total Episodes: " + str(self.num_episodes))
+        print("Avg: " + str(self.episode_reward/self.num_episodes))
 
 
 class TrainEpisodeLogger(Callback):
