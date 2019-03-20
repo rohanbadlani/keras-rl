@@ -589,6 +589,7 @@ class CuriousDQfDAgent(AbstractDQNAgent):
                 nb_max_episode_steps)
 
     def calculate_intrinsic_reward(self, state0, state1, encoded_actions):
+        pred_state1 = self.curiosity_forward_model.predict_on_batch(x=[state0,encoded_actions])
         IR_SCALE_FACTOR=1.0
         true_state1 = self.phi_ns.predict_on_batch(x=[state1])
         #Divide by the size of the state.
